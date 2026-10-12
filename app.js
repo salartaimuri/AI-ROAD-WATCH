@@ -2,6 +2,30 @@
 'use strict';
 const $=id=>document.getElementById(id), video=$('video'), overlay=$('overlay'), ctx=overlay.getContext('2d');
 let stream=null, model=null, running=false, processing=false, watchId=null, facing='environment', audio=false, audioCtx=null, lastInference=0, tracks=[], events=[], lastWarn=0, frame=0, nextTrackId=1;
+// Accessibility: conservative voice announcements, NOT traffic-control instructions.
+let signalCandidate='uncertain',signalCandidateCount=0,signalAnnounced='uncertain',signalLastSeen=0,signalLastSpeech=0;
+const signalWords={red:'Red light detected. Stop if safe.',amber:'Yellow light detected. Prepare to stop safely.',green:'Green light detected. Check that the road is clear.'};
+function resetSignalVoice(){signalCandidate='uncertain';signalCandidateCount=0;signalAnnounced='uncertain';signalLastSeen=0;if('speechSynthesis' in window)window.speechSynthesis.cancel()}
+function speakSignal(message){if(!('speechSynthesis' in window)||!('SpeechSynthesisUtterance' in window)){setText('signalVoiceStatus','Speech unavailable in this browser.');return}try{window.speechSynthesis.cancel();const utter=new SpeechSynthesisUtterance(message);utter.lang='en-US';utter.rate=0.9;utter.volume=1;window.speechSynthesis.speak(utter);setText('signalVoiceStatus','Announced: '+message)}catch(e){setText('signalVoiceStatus','Speech error: '+e.message)}}
+function updateSignalVoice(states,detectedCount){
+ if(!$('signalVoice').checked||!running)return;
+ const now=Date.now(),unique=[...new Set(states)];
+ // Multiple traffic lights may control other lanes. Suppress ambiguous scenes.
+ const current=detectedCount===1&&unique.length===1?unique[0]:'uncertain';
+ if(current==='uncertain'){
+   signalCandidate='uncertain';signalCandidateCount=0;
+   if(now-signalLastSeen>2500)signalAnnounced='uncertain';
+   setText('signalVoiceStatus','No single unambiguous traffic-light color; no announcement.');return;
+ }
+ signalLastSeen=now;
+ if(current!==signalCandidate){signalCandidate=current;signalCandidateCount=1;return}
+ signalCandidateCount++;
+ // ~4 frames at 350ms intervals, plus cooldown to avoid rapid contradictory speech.
+ if(signalCandidateCount>=4&&current!==signalAnnounced&&now-signalLastSpeech>=4000){
+   signalAnnounced=current;signalLastSpeech=now;speakSignal(signalWords[current]);
+   logEvent('signal-voice','Experimental signal-color estimate: '+current+' (not lane verified)');
+ }
+}
 const vehicles=new Set(['car','truck','bus','motorcycle','bicycle']);
 const setText=(id,v)=>{$(id).textContent=v};
 const status=s=>setText('camStatus',s);
@@ -11,9 +35,9 @@ function alertMessage(msg,red=false){$('alert').textContent=msg;$('alert').class
 async function loadModel(){if(model)return model;setText('modelStatus','Loading AI model…');if(!window.cocoSsd)throw new Error('AI library unavailable. Check internet connection and reload.');model=await cocoSsd.load({base:'lite_mobilenet_v2'});setText('modelStatus','AI model ready');return model}
 function resize(){const w=video.videoWidth,h=video.videoHeight;if(w&&h&&(overlay.width!==w||overlay.height!==h)){overlay.width=w;overlay.height=h}}
 async function start(){if(running)return;try{if(!navigator.mediaDevices?.getUserMedia)throw new Error('Camera requires HTTPS and a supported browser');stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:facing},width:{ideal:1280},height:{ideal:720}}});video.srcObject=stream;await video.play();running=true;$('start').disabled=true;$('stop').disabled=false;status('Camera active · loading AI');alertMessage('Monitoring: experimental object detection only');startGPS();try{await loadModel()}catch(e){status('Camera active · AI unavailable');alertMessage(e.message);return}status('Camera active · AI ready');requestAnimationFrame(loop)}catch(e){status('Camera error');alertMessage('Camera: '+e.message);stop()}}
-function stop(){running=false;tracks=[];if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}video.srcObject=null;$('start').disabled=false;$('stop').disabled=true;ctx.clearRect(0,0,overlay.width,overlay.height);status('Camera stopped');alertMessage('Monitoring stopped')}
+function stop(){running=false;resetSignalVoice();tracks=[];if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}video.srcObject=null;$('start').disabled=false;$('stop').disabled=true;ctx.clearRect(0,0,overlay.width,overlay.height);status('Camera stopped');alertMessage('Monitoring stopped')}
 async function loop(t){if(!running)return;requestAnimationFrame(loop);if(processing||!model||t-lastInference<350||video.readyState<2)return;processing=true;lastInference=t;try{resize();const detections=await model.detect(video,15,.38);draw(detections);track(detections)}catch(e){setText('modelStatus','Inference error: '+e.message)}finally{processing=false}}
-function draw(ds){ctx.clearRect(0,0,overlay.width,overlay.height);ctx.lineWidth=Math.max(2,overlay.width/450);ctx.font=`${Math.max(15,overlay.width/48)}px sans-serif`;let v=0,s=0,states=[];for(const d of ds){if(vehicles.has(d.class))v++;if(d.class==='traffic light'){s++;const c=signalColor(d.bbox);if(c!=='uncertain')states.push(c)}const [x,y,w,h]=d.bbox;ctx.strokeStyle=d.class==='traffic light'?'#ffd45b':'#44e0b4';ctx.strokeRect(x,y,w,h);ctx.fillStyle=ctx.strokeStyle;ctx.fillText(`${d.class} ${Math.round(d.score*100)}%`,x,Math.max(18,y-5))}setText('vehicles',v);setText('signals',s);setText('signalState',states.length?([...new Set(states)].join(', ')+' (?)'):'Uncertain')}
+function draw(ds){ctx.clearRect(0,0,overlay.width,overlay.height);ctx.lineWidth=Math.max(2,overlay.width/450);ctx.font=`${Math.max(15,overlay.width/48)}px sans-serif`;let v=0,s=0,states=[];for(const d of ds){if(vehicles.has(d.class))v++;if(d.class==='traffic light'){s++;const c=signalColor(d.bbox);if(c!=='uncertain')states.push(c)}const [x,y,w,h]=d.bbox;ctx.strokeStyle=d.class==='traffic light'?'#ffd45b':'#44e0b4';ctx.strokeRect(x,y,w,h);ctx.fillStyle=ctx.strokeStyle;ctx.fillText(`${d.class} ${Math.round(d.score*100)}%`,x,Math.max(18,y-5))}setText('vehicles',v);setText('signals',s);setText('signalState',states.length?([...new Set(states)].join(', ')+' (?)'):'Uncertain');updateSignalVoice(states,s)}
 const sample=document.createElement('canvas');const sc=sample.getContext('2d',{willReadFrequently:true});
 function signalColor(box){try{const [x,y,w,h]=box;if(w<7||h<15)return 'uncertain';sample.width=18;sample.height=36;sc.drawImage(video,Math.max(0,x),Math.max(0,y),Math.min(w,video.videoWidth-x),Math.min(h,video.videoHeight-y),0,0,18,36);const p=sc.getImageData(0,0,18,36).data;let r=0,a=0,g=0;for(let i=0;i<p.length;i+=4){const R=p[i],G=p[i+1],B=p[i+2];if(Math.max(R,G,B)<95)continue;if(R>G*1.45&&R>B*1.45)r++;else if(R>110&&G>80&&R>B*1.5&&G>B*1.3&&Math.abs(R-G)<105)a++;else if(G>R*1.35&&G>B*1.2)g++}const top=Math.max(r,a,g);return top<7?'uncertain':top===r?'red':top===a?'amber':'green'}catch{return 'uncertain'}}
 function track(ds){
@@ -79,5 +103,7 @@ function onGPS(p){if(!roadEnabled)return;const c=p.coords,here={lat:c.latitude,l
 $('roadEnable').onclick=()=>{roadEnabled=true;$('roadEnable').disabled=true;$('roadRefresh').disabled=false;$('roadDisable').disabled=false;roadStatus('Enabled. Waiting for GPS; approximate coordinates will be sent to a public Overpass server.');startGPS()};
 $('roadDisable').onclick=disableRoad;
 $('roadRefresh').onclick=()=>{roadFetchAt=0;roadFetchPos=null;roadWays=[];roadReset();roadStatus('Waiting for GPS to fetch nearby roads…')};
+$('signalVoice').onchange=()=>{resetSignalVoice();setText('signalVoiceStatus',$('signalVoice').checked?'Voice enabled. Waiting for one stable traffic light.':'Voice announcements off.')};
+$('testSignalVoice').onclick=()=>speakSignal('RoadWatch voice test. Red light. Yellow light. Green light. Always check the actual traffic signal.');
 $('start').onclick=start;$('stop').onclick=stop;$('switch').onclick=async()=>{facing=facing==='environment'?'user':'environment';if(running){stop();await start()}};$('sound').onclick=()=>{audio=!audio;$('sound').textContent=audio?'🔊 Audio enabled':'🔇 Enable audio';if(audio){audioCtx=audioCtx||new(window.AudioContext||window.webkitAudioContext)();audioCtx.resume()}};$('snapshot').onclick=snapshot;$('gpsTest').onclick=startGPS;$('gpsStop').onclick=stopGPS;$('export').onclick=()=>download(URL.createObjectURL(new Blob([JSON.stringify(events,null,2)],{type:'application/json'})),`roadwatch-events-${Date.now()}.json`);$('clear').onclick=()=>{events=[];renderEvents()};$('openMap').onclick=e=>{if($('openMap').getAttribute('href')==='#')e.preventDefault()};window.addEventListener('pagehide',()=>{stop();stopGPS()});if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
 })();
