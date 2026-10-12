@@ -1,20 +1,26 @@
-# RoadWatch AI v4 — iPhone PWA
+# RoadWatch AI v5 — Supabase + offline history
+
+Upload all files to the **root** of the existing `AI-ROAD-WATCH` GitHub repository. GitHub Pages URL stays the same.
 
 ## Features
-- Live camera + TensorFlow.js COCO-SSD detection (downloads from CDNs).
-- Improved (still approximate) frame-to-frame object tracking.
-- GPS diagnostics with retry after permission denial.
-- **Opt-in** OpenStreetMap one-way direction check for the phone's **own** movement, using Overpass nearby road geometry.
-- Traffic-light color estimation, experimental screen-motion alerts, event JSON export, snapshots.
+- Existing v4 camera, AI vehicle detection, GPS and experimental road direction diagnostics
+- Local IndexedDB journeys, safety events and opt-in GPS samples (every 15 seconds during active journeys)
+- Supabase email signup/signin/signout
+- Opt-in manual cloud sync for journeys and safety events; cloud event history
+- Local JSON export and deletion
 
-## Deploy from Windows
-Extract the ZIP. Upload **all files inside** this folder to the root of your GitHub `AI-ROAD-WATCH` repository, replacing the old versions. GitHub Pages: Settings → Pages → Deploy from main / (root). Reload Safari or remove/re-add Home Screen shortcut if it caches the old app.
+## Security / limitations
+- Browser publishable key in `config.js` is intentional. NEVER place `sb_secret_`, service-role keys or database passwords in the repository.
+- RLS must be enabled on both tables with user_id = auth.uid() policies and the composite journey ownership foreign key.
+- The app does **not** upload GPS samples to Supabase; there is no `gps_points` table. It saves optional samples locally only.
+- Cloud sync is **manual** after sign-in and consent; it is not a background job.
+- Browser data may be deleted by iOS. Cloud records are not deleted by the local Delete button.
+- Avoid real driving tests until safety functionality is validated. No reliable detection of other wrong-way drivers.
+- Sign up may require email confirmation. Supabase's built-in email service may impose limits.
 
-## GPS/map test
-Open the HTTPS site on your iPhone, tap Test GPS, grant precise location permission, then opt in to Enable road lookup. Look at road name, centerline distance, one-way flag, and diagnostic status. If the Overpass endpoint is rate-limited or offline, road lookup will be unavailable while camera detection continues.
-
-## Limitations and safety
-This is not a driving safety device. Test while parked or with a passenger. GPS map matching is approximate and can choose the wrong road near junctions or parallel carriageways. A map-direction conflict is not proof of a violation. The app **cannot detect another driver's legal wrong-way travel**. Do not use it to make driving decisions. Road lookup transmits approximate location to a public Overpass server when explicitly enabled. No location is transmitted to the app developer by this code. Camera frames are processed in-browser, with third-party AI libraries loaded from CDNs. No video recording or server-side upload.
-
-## Developer notes
-The public Overpass API is community-operated, subject to rate limits, and is not a production-grade map service. Map results depend on OSM tagging and may be missing or outdated. Camera motion is not compensated. Safari must remain foregrounded for continuous camera use. Requires HTTPS for camera/GPS.
+## Test
+1. Deploy and hard refresh Safari.
+2. Start journey, use camera, end journey, refresh local history.
+3. Sign up and confirm email; sign in.
+4. Check cloud consent, press Sync now.
+5. Confirm rows in Supabase Table Editor and Load cloud history.
