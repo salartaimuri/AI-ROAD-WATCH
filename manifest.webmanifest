@@ -1,1 +1,1 @@
-{"name":"RoadWatch AI Live","short_name":"RoadWatch","start_url":"./index.html","display":"standalone","background_color":"#09111f","theme_color":"#09111f","description":"Experimental live road object detection and GPS"}
+{"name":"RoadWatch AI","short_name":"RoadWatch","start_url":"./","scope":"./","display":"standalone","background_color":"#09111f","theme_color":"#0a1220","description":"Experimental camera and GPS road-monitoring assistant"}
