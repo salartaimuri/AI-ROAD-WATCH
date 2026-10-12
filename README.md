@@ -3,14 +3,14 @@
 Upload all files to the **root** of the existing `AI-ROAD-WATCH` GitHub repository. GitHub Pages URL stays the same.
 
 ## Features
-- Existing v4 camera, AI vehicle detection, GPS and experimental road direction diagnostics
+- Camera, AI vehicle detection, GPS and experimental road direction diagnostics
 - Local IndexedDB journeys, safety events and opt-in GPS samples (every 15 seconds during active journeys)
 - Supabase email signup/signin/signout
 - Opt-in manual cloud sync for journeys and safety events; cloud event history
 - Local JSON export and deletion
 
 ## Security / limitations
-- Browser publishable key in `config.js` is intentional. NEVER place `sb_secret_`, service-role keys or database passwords in the repository.
+- Browser publishable key in `config.js` is intentional. NEVER place `secret_`, service-role keys or database passwords in the repository.
 - RLS must be enabled on both tables with user_id = auth.uid() policies and the composite journey ownership foreign key.
 - The app does **not** upload GPS samples to Supabase; there is no `gps_points` table. It saves optional samples locally only.
 - Cloud sync is **manual** after sign-in and consent; it is not a background job.
